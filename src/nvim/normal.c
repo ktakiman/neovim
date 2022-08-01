@@ -34,6 +34,7 @@
 #include "nvim/globals.h"
 #include "nvim/grid_defs.h"
 #include "nvim/indent.h"
+#include "nvim/keidebug.h"
 #include "nvim/keycodes.h"
 #include "nvim/log.h"
 #include "nvim/main.h"
@@ -986,6 +987,7 @@ normal_end:
 
 static int normal_execute(VimState *state, int key)
 {
+  KeiDump();
   NormalState *s = (NormalState *)state;
   s->command_finished = false;
   s->ctrl_w = false;                  // got CTRL-W command

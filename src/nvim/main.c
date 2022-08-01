@@ -224,6 +224,9 @@ int main(int argc, char **argv)
   }
 #endif
 
+  printf("stopped!");
+  getchar();
+
   argv0 = argv[0];
 
   char_u *fname = NULL;   // file name from command line
