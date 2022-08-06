@@ -14,6 +14,24 @@
 #define BUF_DUMP_FILE "keibufdump.txt"
 #define STATE_DUMP_FILE "keistatedump.txt"
 
+// --------------------------------------------------------------------------------
+// types not available in header file
+// --------------------------------------------------------------------------------
+
+// this is not exposed outside of [memline.c]
+// copied the definition locally here...
+typedef struct data_block {
+  uint16_t db_id;               /* ID for data block: DATA_ID */
+  unsigned db_free;             /* free space available */
+  unsigned db_txt_start;        /* byte where text starts */
+  unsigned db_txt_end;          /* byte just after data block */
+  linenr_T db_line_count;       /* number of lines in this block */
+  unsigned db_index[1];         /* index for start of line (actually bigger)
+                                 * followed by empty space upto db_txt_start
+                                 * followed by the text in the lines until
+                                 * end of page */
+} data_block_T;
+
 
 // - not sure which strategy works best
 //    1. append each dump ~ this is better if need to track history
@@ -177,19 +195,6 @@ static void KeiDumpHashItem(mf_hashitem_T* hi, char* tmp, int* pos, int idt) {
 }
 
 static void KeiDumpDataBlock(void* data, char* tmp, int* pos, int idt) {
-  // this is not exposed outside of [memline.c]
-  // copied the definition locally here...
-  typedef struct data_block {
-    uint16_t db_id;               /* ID for data block: DATA_ID */
-    unsigned db_free;             /* free space available */
-    unsigned db_txt_start;        /* byte where text starts */
-    unsigned db_txt_end;          /* byte just after data block */
-    linenr_T db_line_count;       /* number of lines in this block */
-    unsigned db_index[1];         /* index for start of line (actually bigger)
-                                   * followed by empty space upto db_txt_start
-                                   * followed by the text in the lines until
-                                   * end of page */
-  } data_block_T;
 
   int hw = 16;
 
@@ -263,7 +268,7 @@ static void KeiDumpMemLine(memline_T* memline, char* tmp, int* pos, int idt) {
   DL(tmp, pos, idt, hw, "ml_line_ct:", "%i", memline->ml_line_count);
   DL(tmp, pos, idt, hw, "ml_line_lnum:", "%i", memline->ml_line_lnum);
   DL(tmp, pos, idt, hw, "ml_line_offset:", "%li", memline->ml_line_offset);
-  DF(tmp, pos, idt, hw, "ml_flags:", memline->ml_flags, "ML_EMPTY", "ML_LINE_DIRTY", "ML_LOCKED_DIRTY", "ML_LOCKED_POS");
+  // DF(tmp, pos, idt, hw, "ml_flags:", memline->ml_flags, "ML_EMPTY", "ML_LINE_DIRTY", "ML_LOCKED_DIRTY", "ML_LOCKED_POS");
   DL(tmp, pos, idt, hw, "ml_stack_top:", "%i", memline->ml_stack_top);
   DL(tmp, pos, idt, hw, "ml_stack_size:", "%i", memline->ml_stack_size);
   DL(tmp, pos, idt, hw, "ml_line_ptr:", "%p", memline->ml_line_ptr);
@@ -271,10 +276,10 @@ static void KeiDumpMemLine(memline_T* memline, char* tmp, int* pos, int idt) {
   DL(tmp, pos, idt, hw, "ml_mfp:", "%p", memline->ml_mfp);
   KeiDumpMemFile(memline->ml_mfp, tmp, pos, idt + 2);
   
-  DL(tmp, pos, idt, hw, "ml_locked:", "%p", memline->ml_locked);
-  DL(tmp, pos, idt, hw, "ml_locked_low:", "%li", memline->ml_locked_low);
-  DL(tmp, pos, idt, hw, "ml_locked_high:", "%li", memline->ml_locked_high);
-  DL(tmp, pos, idt, hw, "ml_locked_lineadd:", "%i", memline->ml_locked_lineadd);
+  // DL(tmp, pos, idt, hw, "ml_locked:", "%p", memline->ml_locked);
+  // DL(tmp, pos, idt, hw, "ml_locked_low:", "%li", memline->ml_locked_low);
+  // DL(tmp, pos, idt, hw, "ml_locked_high:", "%li", memline->ml_locked_high);
+  // DL(tmp, pos, idt, hw, "ml_locked_lineadd:", "%i", memline->ml_locked_lineadd);
 
   DHR(tmp, pos, idt, hw);
   DH(tmp, pos, idt, 6, "line:", false);
@@ -321,25 +326,78 @@ void KeiDumpBuf(buf_T* buf) {
   DumpToFile("buffer_dump", &dump_buf_ct, "%s", tmp);
 }
 
+static void KeiDumpBuf2(buf_T* buf, char* tmp, int* pos) {
+  int hw = 20;
+  DL(tmp, pos, 0, hw, "buf", "%p", buf);
+  DHR(tmp, pos, 0, hw);
+
+  memline_T* ml = &buf->b_ml;
+  DH(tmp, pos, 0, hw, "memline:", true);
+  DL(tmp, pos, 0, hw, "ml_line_count:", "%li", ml->ml_line_count);
+  DL(tmp, pos, 0, hw, "ml_locked:", "%p", ml->ml_locked);
+  DL(tmp, pos, 0, hw, "ml_locked_low:", "%li", ml->ml_locked_low);
+  DL(tmp, pos, 0, hw, "ml_locked_high:", "%li", ml->ml_locked_high);
+  DL(tmp, pos, 0, hw, "ml_locked_lineadd:", "%i", ml->ml_locked_lineadd);
+  DHR(tmp, pos, 0, hw);
+}
+
+static void KeiDumpBlockHeader2(buf_T* buf, char* tmp) {
+  memfile_T* mf = buf->b_ml.ml_mfp; 
+  bhdr_T* cur = mf->mf_used_first;
+
+  int ct = 0;
+  while (cur) {
+    ++ct;
+    cur = cur->bh_next;
+  }
+  int pos = 0;
+  int hw = 20;
+
+  DL(tmp, &pos, 0, hw, "bh count", "%i", ct);
+  DL(tmp, &pos, 0, hw, "used first", "%p", cur);
+  DL(tmp, &pos, 0, hw, "used last", "%p", mf->mf_used_last);
+  DHR(tmp, &pos, 0, hw);
+
+  ct = 0;
+  cur = mf->mf_used_first;
+
+  while (cur) {
+    DL(tmp, &pos, 0, hw, "bhdr_T*:", "%p", cur);
+    DL(tmp, &pos, 2, hw -2, "prev:", "%p", cur->bh_prev);
+    DL(tmp, &pos, 2, hw -2, "next:", "%p", cur->bh_next);
+    DL(tmp, &pos, 2, hw -2, "num/hashkey:", "%i", cur->bh_hashitem.mhi_key);
+    DL(tmp, &pos, 2, hw -2, "page count:", "%i", cur->bh_page_count);
+    DL(tmp, &pos, 2, hw -2, "data:", "%p", cur->bh_data);
+
+    data_block_T* data = cur->bh_data;
+    DL(tmp, &pos, 4, hw -4, "id:", "%i", data->db_id);
+    DL(tmp, &pos, 4, hw -4, "line ct", "%i", data->db_line_count);
+    DL(tmp, &pos, 4, hw -4, "free", "%i", data->db_free);
+
+    cur = cur->bh_next;
+    ++ct;
+    if (ct > 5) {
+      break;
+    }
+  }
+}
+
 // ----------------------------------------------------------------------------
 // window dump
 // ----------------------------------------------------------------------------
-static int KeiDumpWinCore(win_T* win, char* tmp) {
-  int pos = 0;
+static int KeiDumpWinCore(win_T* win, char* tmp, int* pos) {
   int idt = 2;   // indent
   int hw = 20;   // header width
 
-  DL(tmp, &pos, 0, idt + hw, "WINDOW:", "%p", win);
-  DL(tmp, &pos, idt, hw, "handle:", "%i", win->handle);
-  DL(tmp, &pos, idt, hw, "buffer:", "%p", win->w_buffer);
-  DL(tmp, &pos, idt, hw, "w_width:", "%i", win->w_width);
-  DL(tmp, &pos, idt, hw, "w_height:", "%i", win->w_height);
-  DH(tmp, &pos, idt, hw, "w_cursor:", true);
-  DL(tmp, &pos, idt + 2, hw - 2, "lnum:", "%i", win->w_cursor.lnum);
-  DL(tmp, &pos, idt + 2, hw - 2, "col:", "%i", win->w_cursor.col);
-  DL(tmp, &pos, idt + 2, hw - 2, "coladd:", "%i", win->w_cursor.coladd);
-
-  return pos;
+  DL(tmp, pos, 0, idt + hw, "window:", "%p", win);
+  DL(tmp, pos, idt, hw, "handle:", "%i", win->handle);
+  DL(tmp, pos, idt, hw, "buffer:", "%p", win->w_buffer);
+  DL(tmp, pos, idt, hw, "w_width:", "%i", win->w_width);
+  DL(tmp, pos, idt, hw, "w_height:", "%i", win->w_height);
+  DH(tmp, pos, idt, hw, "w_cursor:", true);
+  DL(tmp, pos, idt + 2, hw - 2, "lnum:", "%i", win->w_cursor.lnum);
+  DL(tmp, pos, idt + 2, hw - 2, "col:", "%i", win->w_cursor.col);
+  DL(tmp, pos, idt + 2, hw - 2, "coladd:", "%i", win->w_cursor.coladd);
 }
 
 static int dump_win_ct = 0;
@@ -347,7 +405,8 @@ static int dump_win_ct = 0;
 void KeiDumpWin(win_T* win) {
   char tmp[LOCAL_BUF_SIZE];
 
-  int pos = KeiDumpWinCore(win, tmp);
+  int pos = 0;
+  KeiDumpWinCore(win, tmp, &pos);
 
   sprintf(tmp + pos, "\n(about %i / %i bytes left in local buffer)", LOCAL_BUF_SIZE - (pos + 50), LOCAL_BUF_SIZE);
   DumpToFile("window_dump", &dump_win_ct, "%s", tmp);
@@ -449,11 +508,16 @@ void KeiDump(void) {
   char tmp_buf[LOCAL_BUF_SIZE];
   char tmp_win[LOCAL_BUF_SIZE];
 
-  KeiDumpBufCore(curbuf, tmp_buf);
-  KeiDumpWinCore(curwin, tmp_win);
+  int pos_win_buf = 0;
+  // KeiDumpBufCore(curbuf, tmp_buf);
+  KeiDumpBlockHeader2(curbuf, tmp_buf);
+
+  KeiDumpBuf2(curbuf, tmp_win, &pos_win_buf);
+  KeiDumpWinCore(curwin, tmp_win, &pos_win_buf);
 
   int pos = 0;
-  Box(tmp_main, &pos, 2, 1, 2, tmp_win, tmp_buf);
+  // Box(tmp_main, &pos, 1, 1, 1, tmp_buf);
+  Box(tmp_main, &pos, 2, 1, 2, tmp_buf, tmp_win);
   /* int pos = Box(tmp_main, 0, 2, 1, 2, tmp_buf, tmp_win); */
 
   sprintf(tmp_main + pos, "\n(about %i / %i bytes left in local buffer)", LOCAL_BUF_SIZE - (pos + 50), LOCAL_BUF_SIZE);

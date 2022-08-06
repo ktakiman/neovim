@@ -987,7 +987,6 @@ normal_end:
 
 static int normal_execute(VimState *state, int key)
 {
-  KeiDump();
   NormalState *s = (NormalState *)state;
   s->command_finished = false;
   s->ctrl_w = false;                  // got CTRL-W command
@@ -1167,6 +1166,9 @@ static int normal_execute(VimState *state, int key)
 
 finish:
   normal_finish_command(s);
+
+  KeiDump();
+
   return 1;
 }
 

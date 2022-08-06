@@ -224,8 +224,8 @@ int main(int argc, char **argv)
   }
 #endif
 
-  printf("stopped!");
-  getchar();
+  // printf("stopped!");
+  // getchar();
 
   argv0 = argv[0];
 
