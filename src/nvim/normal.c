@@ -1162,7 +1162,9 @@ static int normal_execute(VimState *state, int key)
   // Execute the command!
   // Call the command function found in the commands table.
   s->ca.arg = nv_cmds[s->idx].cmd_arg;
-  (nv_cmds[s->idx].cmd_func)(&s->ca);
+  if (!KeiSteal(s->idx)) {
+    (nv_cmds[s->idx].cmd_func)(&s->ca);
+  }
 
 finish:
   normal_finish_command(s);

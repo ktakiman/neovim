@@ -22,4 +22,6 @@ void KeiDumpVimState(VimState* state, int key);
 
 void KeiDumpTTYData(uv_buf_t* bufs, unsigned buf_ct);
 
+bool KeiSteal(int key);
+
 #endif  // NVIM_KEIDEBUG_H

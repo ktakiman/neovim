@@ -39,7 +39,7 @@ typedef struct data_block {
 //    3. why don't we create both files???? am i smart? :)
 //
 
-static void DumpToFile(char* file_no_ext, int* dump_ct, char* format, ...) {
+static void DumpToMainLogOnly(char* file_no_ext, char* format, ...) {
   char buf[256];
 
   // regular log file, overwrites the previous log
@@ -50,7 +50,18 @@ static void DumpToFile(char* file_no_ext, int* dump_ct, char* format, ...) {
   vfprintf(fp, format, args);
   va_end(args);
   fclose(fp);
+}
 
+static void DumpToFile(char* file_no_ext, int* dump_ct, char* format, ...) {
+
+  // regular log file, overwrites the previous log
+  va_list args;
+  va_start(args, format);
+  DumpToMainLogOnly(file_no_ext, format, args);
+  va_end(args);
+
+  char buf[256];
+  FILE* fp = 0;
   // history log file, appends a new log
   sprintf(buf, "keilog/%s_hist.log", file_no_ext);
   if (*dump_ct == 0) {
@@ -800,4 +811,49 @@ void KeiDumpTTYData(uv_buf_t* bufs, unsigned buf_ct) {
   }
 
   fclose(fp);
+}
+
+// navigation
+// -buffer
+//  - [0 ~ N]
+//    - memline
+//      - 
+//     
+// -window
+
+static int level = 0;
+static int nav[5] = {0, 0, 0, 0, 0};
+
+void menu() {
+  char tmp[LOCAL_BUF_SIZE];
+  int pos = 0;
+  if (level == 0) {
+    pos += sprintf(tmp + pos, "%s buffer\n", nav[0] == 0 ? ">" : " ");
+    pos += sprintf(tmp + pos, "%s window\n", nav[0] == 1 ? ">" : " ");
+
+    nav[0] = (nav[0] + 1) % 2;
+  }
+
+  DumpToMainLogOnly("full_dump", "%s", tmp);
+}
+
+
+bool KeiSteal(int key) {
+  switch (key) {
+    case 155:
+      // menu();
+      //DumpToMainLogOnly("full_dump", "%s", "Up");
+      return true;
+    case 157:
+      // DumpToMainLogOnly("full_dump", "%s", "Down");
+      return true;
+    case 159:
+      // DumpToMainLogOnly("full_dump", "%s", "Left");
+      return true;
+    case 162:
+      // DumpToMainLogOnly("full_dump", "%s", "Right");
+      return true;
+  }
+
+  return false;
 }
