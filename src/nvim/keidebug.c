@@ -6,31 +6,14 @@
 
 #include <nvim/globals.h>
 #include <nvim/normal.h>
-/* #include <nvim/keymap.h> */
 #include <nvim/types.h>
 #include <nvim/ex_cmds_defs.h>
+
+#include <nvim/keitypecopy.h>
 
 #define DUMP_FILE "keidump.txt"
 #define BUF_DUMP_FILE "keibufdump.txt"
 #define STATE_DUMP_FILE "keistatedump.txt"
-
-// --------------------------------------------------------------------------------
-// types not available in header file
-// --------------------------------------------------------------------------------
-
-// this is not exposed outside of [memline.c]
-// copied the definition locally here...
-typedef struct data_block {
-  uint16_t db_id;               /* ID for data block: DATA_ID */
-  unsigned db_free;             /* free space available */
-  unsigned db_txt_start;        /* byte where text starts */
-  unsigned db_txt_end;          /* byte just after data block */
-  linenr_T db_line_count;       /* number of lines in this block */
-  unsigned db_index[1];         /* index for start of line (actually bigger)
-                                 * followed by empty space upto db_txt_start
-                                 * followed by the text in the lines until
-                                 * end of page */
-} data_block_T;
 
 
 // - not sure which strategy works best
@@ -45,6 +28,7 @@ static void DumpToMainLogOnly(char* file_no_ext, char* format, ...) {
   // regular log file, overwrites the previous log
   sprintf(buf, "keilog/%s.log", file_no_ext);
   FILE* fp = fopen(buf, "w");
+  fprintf(fp, "what's going on");
   va_list args;
   va_start(args, format);
   vfprintf(fp, format, args);
@@ -53,15 +37,24 @@ static void DumpToMainLogOnly(char* file_no_ext, char* format, ...) {
 }
 
 static void DumpToFile(char* file_no_ext, int* dump_ct, char* format, ...) {
-
-  // regular log file, overwrites the previous log
-  va_list args;
-  va_start(args, format);
-  DumpToMainLogOnly(file_no_ext, format, args);
-  va_end(args);
-
   char buf[256];
   FILE* fp = 0;
+
+  // ** calling another method above does not work. why ??? can I fixt it ??? **
+  // regular log file, overwrites the previous log
+  // va_list args;
+  // va_start(args, format);
+  // DumpToMainLogOnly(file_no_ext, format, args);
+  // va_end(args);
+  
+  sprintf(buf, "keilog/%s.log", file_no_ext);
+  fp = fopen(buf, "w");
+  va_list args;
+  va_start(args, format);
+  vfprintf(fp, format, args);
+  va_end(args);
+  fclose(fp);
+
   // history log file, appends a new log
   sprintf(buf, "keilog/%s_hist.log", file_no_ext);
   if (*dump_ct == 0) {
@@ -344,11 +337,16 @@ static void KeiDumpBuf2(buf_T* buf, char* tmp, int* pos) {
 
   memline_T* ml = &buf->b_ml;
   DH(tmp, pos, 0, hw, "memline:", true);
-  DL(tmp, pos, 0, hw, "ml_line_count:", "%li", ml->ml_line_count);
-  DL(tmp, pos, 0, hw, "ml_locked:", "%p", ml->ml_locked);
-  DL(tmp, pos, 0, hw, "ml_locked_low:", "%li", ml->ml_locked_low);
-  DL(tmp, pos, 0, hw, "ml_locked_high:", "%li", ml->ml_locked_high);
-  DL(tmp, pos, 0, hw, "ml_locked_lineadd:", "%i", ml->ml_locked_lineadd);
+  DL(tmp, pos, 2, hw, "ml_line_count:", "%li", ml->ml_line_count);
+  DL(tmp, pos, 2, hw, "ml_locked:", "%p", ml->ml_locked);
+  DL(tmp, pos, 2, hw, "ml_locked_low:", "%li", ml->ml_locked_low);
+  DL(tmp, pos, 2, hw, "ml_locked_high:", "%li", ml->ml_locked_high);
+  DL(tmp, pos, 2, hw, "ml_locked_lineadd:", "%i", ml->ml_locked_lineadd);
+  DL(tmp, pos, 2, hw, "ml_stack:", "top=%i, size=%i", ml->ml_stack_top, ml->ml_stack_size);
+  for (int i = 0; i < ml->ml_stack_top; ++i) {
+    infoptr_T* info = ml->ml_stack + i;
+    DL(tmp, pos, 4, hw, "-", "n=%i, x=%i, l=%i, h=%i", info->ip_bnum, info->ip_index, info->ip_low, info->ip_high);
+  }
   DHR(tmp, pos, 0, hw);
 }
 
@@ -364,26 +362,43 @@ static void KeiDumpBlockHeader2(buf_T* buf, char* tmp) {
   int pos = 0;
   int hw = 20;
 
+  cur = mf->mf_used_first;
+
   DL(tmp, &pos, 0, hw, "bh count", "%i", ct);
   DL(tmp, &pos, 0, hw, "used first", "%p", cur);
   DL(tmp, &pos, 0, hw, "used last", "%p", mf->mf_used_last);
   DHR(tmp, &pos, 0, hw);
 
   ct = 0;
-  cur = mf->mf_used_first;
 
   while (cur) {
     DL(tmp, &pos, 0, hw, "bhdr_T*:", "%p", cur);
-    DL(tmp, &pos, 2, hw -2, "prev:", "%p", cur->bh_prev);
-    DL(tmp, &pos, 2, hw -2, "next:", "%p", cur->bh_next);
     DL(tmp, &pos, 2, hw -2, "num/hashkey:", "%i", cur->bh_hashitem.mhi_key);
-    DL(tmp, &pos, 2, hw -2, "page count:", "%i", cur->bh_page_count);
+    // DL(tmp, &pos, 2, hw -2, "prev:", "%p", cur->bh_prev);
+    // DL(tmp, &pos, 2, hw -2, "next:", "%p", cur->bh_next);
+    // DL(tmp, &pos, 2, hw -2, "page count:", "%i", cur->bh_page_count);
     DL(tmp, &pos, 2, hw -2, "data:", "%p", cur->bh_data);
 
-    data_block_T* data = cur->bh_data;
-    DL(tmp, &pos, 4, hw -4, "id:", "%i", data->db_id);
-    DL(tmp, &pos, 4, hw -4, "line ct", "%i", data->db_line_count);
-    DL(tmp, &pos, 4, hw -4, "free", "%i", data->db_free);
+    if (cur->bh_hashitem.mhi_key == 0) {
+      block0_T* b0 = cur->bh_data;
+      DL(tmp, &pos, 4, hw -4, "uname:", "%s", b0->b0_uname);
+      DL(tmp, &pos, 4, hw -4, "fname:", "%s", b0->b0_fname);
+    } else if (cur->bh_hashitem.mhi_key == 1) {
+      pointer_block_T* pb = cur->bh_data;
+      DL(tmp, &pos, 4, hw -4, "ct:", "%i", pb->pb_count);
+      DL(tmp, &pos, 4, hw -4, "max:", "%i", pb->pb_count_max);
+
+      pointer_entry_T* pe = pb->pb_pointer;
+      for (int i = 0; i < pb->pb_count; ++i) {
+        DL(tmp, &pos, 4, hw -4, "ptr:", "%i, %i, %i", pe->pe_bnum, pe->pe_line_count, pe->pe_page_count);
+        ++pe;
+      }
+    } else {
+      data_block_T* data = cur->bh_data;
+      DL(tmp, &pos, 4, hw -4, "id:", "%i", data->db_id);
+      DL(tmp, &pos, 4, hw -4, "line ct", "%i", data->db_line_count);
+      DL(tmp, &pos, 4, hw -4, "free", "%i", data->db_free);
+    }
 
     cur = cur->bh_next;
     ++ct;
@@ -396,7 +411,7 @@ static void KeiDumpBlockHeader2(buf_T* buf, char* tmp) {
 // ----------------------------------------------------------------------------
 // window dump
 // ----------------------------------------------------------------------------
-static int KeiDumpWinCore(win_T* win, char* tmp, int* pos) {
+static void KeiDumpWinCore(win_T* win, char* tmp, int* pos) {
   int idt = 2;   // indent
   int hw = 20;   // header width
 
@@ -550,99 +565,6 @@ void KeiDump(void) {
 // state dump
 // ----------------------------------------------------------------------------
 
-typedef struct normal_state {
-  VimState state;
-  bool command_finished;
-  bool ctrl_w;
-  bool need_flushbuf;
-  bool set_prevcount;
-  bool previous_got_int;             // `got_int` was true
-  bool cmdwin;                       // command-line window normal mode
-  bool noexmode;                     // true if the normal mode was pushed from
-                                     // ex mode(:global or :visual for example)
-  bool toplevel;                     // top-level normal mode
-  oparg_T oa;                        // operator arguments
-  cmdarg_T ca;                       // command arguments
-  int mapped_len;
-  int old_mapped_len;
-  int idx;
-  int c;
-  int old_col;
-  pos_T old_pos;
-} NormalState;
-
-typedef struct insert_state {
-  VimState state;
-  cmdarg_T *ca;
-  int mincol;
-  int cmdchar;
-  int startln;
-  long count;
-  int c;
-  int lastc;
-  int i;
-  bool did_backspace;                // previous char was backspace
-  bool line_is_white;                // line is empty before insert
-  linenr_T old_topline;              // topline before insertion
-  int old_topfill;
-  int inserted_space;                // just inserted a space
-  int replaceState;
-  int did_restart_edit;              // remember if insert mode was restarted
-                                     // after a ctrl+o
-  bool nomove;
-  char_u *ptr;
-} InsertState;
-
-// command_line state stuff ---------------------------------------------------
-typedef struct {
-  colnr_T   vs_curswant;
-  colnr_T   vs_leftcol;
-  linenr_T  vs_topline;
-  int       vs_topfill;
-  linenr_T  vs_botline;
-  int       vs_empty_rows;
-} viewstate_T;
-
-typedef struct {
-  pos_T       search_start;   // where 'incsearch' starts searching
-  pos_T       save_cursor;
-  viewstate_T init_viewstate;
-  viewstate_T old_viewstate;
-  pos_T       match_start;
-  pos_T       match_end;
-  bool        did_incsearch;
-  bool        incsearch_postponed;
-  int         magic_save;
-} incsearch_state_T;
-
-typedef struct command_line_state {
-  VimState state;
-  int firstc;
-  long count;
-  int indent;
-  int c;
-  int gotesc;                           // TRUE when <ESC> just typed
-  int do_abbr;                          // when TRUE check for abbr.
-  char_u *lookfor;                      // string to match
-  int hiscnt;                           // current history line in use
-  int save_hiscnt;                      // history line before attempting
-                                        // to jump to next match
-  int histype;                          // history type to be used
-  incsearch_state_T is_state;
-  int did_wild_list;                    // did wild_list() recently
-  int wim_index;                        // index in wim_flags[]
-  int res;
-  int       save_msg_scroll;
-  int       save_State;                 // remember State when called
-  char_u   *save_p_icm;
-  int some_key_typed;                   // one of the keys was typed
-  // mouse drag and release events are ignored, unless they are
-  // preceded with a mouse down event
-  int ignore_drag_release;
-  int break_ctrl_c;
-  expand_T xpc;
-  long *b_im_ptr;
-} CommandLineState;
 
 static char* DumpKey(char* buf, int key) {
   if (key == K_EVENT) { 
@@ -824,7 +746,7 @@ void KeiDumpTTYData(uv_buf_t* bufs, unsigned buf_ct) {
 static int level = 0;
 static int nav[5] = {0, 0, 0, 0, 0};
 
-void menu() {
+static void menu() {
   char tmp[LOCAL_BUF_SIZE];
   int pos = 0;
   if (level == 0) {
