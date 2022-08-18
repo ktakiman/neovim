@@ -338,6 +338,8 @@ static void KeiDumpBuf2(buf_T* buf, char* tmp, int* pos) {
   memline_T* ml = &buf->b_ml;
   DH(tmp, pos, 0, hw, "memline:", true);
   DL(tmp, pos, 2, hw, "ml_line_count:", "%li", ml->ml_line_count);
+  DL(tmp, pos, 2, hw, "ml_line_lnum:", "%li", ml->ml_line_lnum);
+  DL(tmp, pos, 2, hw, "ml_line_ptr:", "%s", ml->ml_line_ptr);
   DL(tmp, pos, 2, hw, "ml_locked:", "%p", ml->ml_locked);
   DL(tmp, pos, 2, hw, "ml_locked_low:", "%li", ml->ml_locked_low);
   DL(tmp, pos, 2, hw, "ml_locked_high:", "%li", ml->ml_locked_high);
@@ -345,7 +347,16 @@ static void KeiDumpBuf2(buf_T* buf, char* tmp, int* pos) {
   DL(tmp, pos, 2, hw, "ml_stack:", "top=%i, size=%i", ml->ml_stack_top, ml->ml_stack_size);
   for (int i = 0; i < ml->ml_stack_top; ++i) {
     infoptr_T* info = ml->ml_stack + i;
-    DL(tmp, pos, 4, hw, "-", "n=%i, x=%i, l=%i, h=%i", info->ip_bnum, info->ip_index, info->ip_low, info->ip_high);
+    DL(tmp, pos, 4, hw, "ip_bnum:", "%i", info->ip_bnum);     // block number of a pointer block
+    DL(tmp, pos, 4, hw, "ip_index:", "%i", info->ip_index);   // index of pointer block entry for the current line
+    DL(tmp, pos, 4, hw, "ip_low:", "%i", info->ip_low);       // low line number of a pointer block
+    DL(tmp, pos, 4, hw, "ip_high:", "%i", info->ip_high);     // high line number of a pointer block
+  }
+  DL(tmp, pos, 2, hw, "ml_chunksize:", "num=%i, used=%i", ml->ml_numchunks, ml->ml_usedchunks);
+  for (int i = 0; i < ml->ml_usedchunks; ++i) {
+    chunksize_T* cs = ml->ml_chunksize + i;
+    DL(tmp, pos, 4, hw, "mlcs_numlines", "%i", cs->mlcs_numlines);     // block number of a pointer block
+    DL(tmp, pos, 4, hw, "mlcs_totalsize", "%i", cs->mlcs_totalsize);     // block number of a pointer block
   }
   DHR(tmp, pos, 0, hw);
 }
@@ -389,8 +400,9 @@ static void KeiDumpBlockHeader2(buf_T* buf, char* tmp) {
       DL(tmp, &pos, 4, hw -4, "max:", "%i", pb->pb_count_max);
 
       pointer_entry_T* pe = pb->pb_pointer;
-      for (int i = 0; i < pb->pb_count; ++i) {
-        DL(tmp, &pos, 4, hw -4, "ptr:", "%i, %i, %i", pe->pe_bnum, pe->pe_line_count, pe->pe_page_count);
+      for (int i = 0; i < pb->pb_count && i < 10; ++i) {
+        DL(tmp, &pos, 4, hw -4, "ptr:", "%p", pe);
+        DL(tmp, &pos, 4, hw -4, "", "%i, %i, %i", pe->pe_bnum, pe->pe_line_count, pe->pe_page_count);
         ++pe;
       }
     } else {
