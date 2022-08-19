@@ -150,14 +150,26 @@ static void DumpFlags(char* tmp, int* pos, int value, va_list args) {
 }
 
 // Dump a line
-static void DL(char* tmp, int* pos, int indent, int header_len, const char* header, const char* format, ...) {
-  *pos += sprintf(tmp + *pos, "%*s%-*s", indent, "", header_len, header);
 
+static void DLImp(char* tmp, int* pos, int indent, int header_len, const char* header, const char* format, va_list args) {
+  *pos += sprintf(tmp + *pos, "%*s%-*s", indent, "", header_len, header);
+  *pos += vsprintf(tmp + *pos, format, args);
+  *pos += sprintf(tmp + *pos, "\n");
+}
+
+static void DL(char* tmp, int* pos, int indent, int header_len, const char* header, const char* format, ...) {
   va_list args;
   va_start(args, format);
-  *pos += vsprintf(tmp + *pos, format, args);
+  DLImp(tmp, pos, indent, header_len, header, format, args);
   va_end(args);
-  *pos += sprintf(tmp + *pos, "\n");
+}
+
+// Dump a line with extra 'delta' arg
+static void DLD(char* tmp, int* pos, int indent, int header_len, int delta, const char* header, const char* format, ...) {
+  va_list args;
+  va_start(args, format);
+  DLImp(tmp, pos, indent + delta, header_len - delta, header, format, args);
+  va_end(args);
 }
 
 // Dump header only
@@ -330,7 +342,7 @@ void KeiDumpBuf(buf_T* buf) {
   DumpToFile("buffer_dump", &dump_buf_ct, "%s", tmp);
 }
 
-static void KeiDumpBuf2(buf_T* buf, char* tmp, int* pos) {
+static void DumpBuf(buf_T* buf, char* tmp, int* pos) {
   int hw = 20;
   DL(tmp, pos, 0, hw, "buf", "%p", buf);
   DHR(tmp, pos, 0, hw);
@@ -339,7 +351,7 @@ static void KeiDumpBuf2(buf_T* buf, char* tmp, int* pos) {
   DH(tmp, pos, 0, hw, "memline:", true);
   DL(tmp, pos, 2, hw, "ml_line_count:", "%li", ml->ml_line_count);
   DL(tmp, pos, 2, hw, "ml_line_lnum:", "%li", ml->ml_line_lnum);
-  DL(tmp, pos, 2, hw, "ml_line_ptr:", "%s", ml->ml_line_ptr);
+  DL(tmp, pos, 2, hw, "ml_line_ptr:", "%.20s", ml->ml_line_ptr);
   DL(tmp, pos, 2, hw, "ml_locked:", "%p", ml->ml_locked);
   DL(tmp, pos, 2, hw, "ml_locked_low:", "%li", ml->ml_locked_low);
   DL(tmp, pos, 2, hw, "ml_locked_high:", "%li", ml->ml_locked_high);
@@ -353,63 +365,117 @@ static void KeiDumpBuf2(buf_T* buf, char* tmp, int* pos) {
     DL(tmp, pos, 4, hw, "ip_high:", "%i", info->ip_high);     // high line number of a pointer block
   }
   DL(tmp, pos, 2, hw, "ml_chunksize:", "num=%i, used=%i", ml->ml_numchunks, ml->ml_usedchunks);
-  for (int i = 0; i < ml->ml_usedchunks; ++i) {
+  for (int i = 0; i < ml->ml_usedchunks && i < 3; ++i) {
     chunksize_T* cs = ml->ml_chunksize + i;
     DL(tmp, pos, 4, hw, "mlcs_numlines", "%i", cs->mlcs_numlines);     // block number of a pointer block
     DL(tmp, pos, 4, hw, "mlcs_totalsize", "%i", cs->mlcs_totalsize);     // block number of a pointer block
   }
   DHR(tmp, pos, 0, hw);
+
+  // shoud those be in another function?
+  memfile_T* mf = ml->ml_mfp;
+  DL(tmp, pos, 0, hw, "memfile", "%p", mf);
+  DL(tmp, pos, 2, hw, "mf_fname", "%.20s", mf->mf_fname);    // swapfile?
+  DL(tmp, pos, 2, hw, "mf_ffname", "%.20s", mf->mf_ffname);  // swapfile?
+  DL(tmp, pos, 2, hw, "mf_infile_count", "%u", mf->mf_infile_count);
+  DL(tmp, pos, 2, hw, "mf_page_size", "%i", mf->mf_page_size);
+  DL(tmp, pos, 2, hw, "mf_dirty", "%i", mf->mf_dirty);
+  DL(tmp, pos, 2, hw, "mf_blocknr_min", "%i", mf->mf_blocknr_min);
+  DL(tmp, pos, 2, hw, "mf_blocknr_max", "%i", mf->mf_blocknr_max);
+  DL(tmp, pos, 2, hw, "mf_neg_count", "%i", mf->mf_neg_count);
+
+  // bhdr_T *mf_free_first;             /// first block header in free list
+  // bhdr_T *mf_used_first;             /// mru block header in used list
+  // bhdr_T *mf_used_last;              /// lru block header in used list
+  //
+  // mf_hashtab_T mf_hash;              /// hash lists
+  // mf_hashtab_T mf_trans;             /// trans lists
 }
 
-static void KeiDumpBlockHeader2(buf_T* buf, char* tmp) {
-  memfile_T* mf = buf->b_ml.ml_mfp; 
-  bhdr_T* cur = mf->mf_used_first;
-
-  int ct = 0;
-  while (cur) {
-    ++ct;
-    cur = cur->bh_next;
+#define DATA_ID        (('d' << 8) + 'a')   // data block id
+#define PTR_ID         (('p' << 8) + 't')   // pointer block id
+#define BLOCK0_ID      (('0' << 8) + 'b')   // block0 id0 & id1
+static void CountBlockHeaders(bhdr_T* bh, char* tmp, int* pos, int idt, int hw, const char* tag) {
+  int data0_ct = 0;
+  int ptr_ct = 0;
+  int data_ct = 0;
+  int unknown_ct = 0;
+  while (bh) {
+    uint16_t* p_dataid = bh->bh_data;  // look at first two bytes of data buffer
+    switch (*p_dataid) {
+      case DATA_ID:
+        ++data_ct;
+        break;
+      case BLOCK0_ID:
+        ++data0_ct;
+        break;
+      case PTR_ID:
+        ++ptr_ct;
+        break;
+      default:
+        ++unknown_ct;
+        break;
+    }
+    bh = bh->bh_next;
   }
+  
+  DL(tmp, pos, idt, hw, tag, "d0=%i, ptr=%i, data=%i, unk=%i", data0_ct, ptr_ct, data_ct, unknown_ct);
+}
+
+static void DumpBlockHeaders(buf_T* buf, char* tmp) {
+  memfile_T* mf = buf->b_ml.ml_mfp; 
+
   int pos = 0;
   int hw = 20;
 
-  cur = mf->mf_used_first;
+  bhdr_T* cur = mf->mf_used_first;
 
-  DL(tmp, &pos, 0, hw, "bh count", "%i", ct);
-  DL(tmp, &pos, 0, hw, "used first", "%p", cur);
-  DL(tmp, &pos, 0, hw, "used last", "%p", mf->mf_used_last);
-  DHR(tmp, &pos, 0, hw);
+  DH(tmp, &pos, 0, hw, "block headers:", true);
 
-  ct = 0;
+  int idt = 2;
+  CountBlockHeaders(cur, tmp, &pos, idt, hw, "bh used ct");
+  CountBlockHeaders(mf->mf_free_first, tmp, &pos, idt, hw, "bh free ct");
+  DL(tmp, &pos, idt, hw, "used first", "%p", cur);
+  DL(tmp, &pos, idt, hw, "used last", "%p", mf->mf_used_last);
+  DHR(tmp, &pos, idt, hw);
+
+  int ct = 0;
 
   while (cur) {
-    DL(tmp, &pos, 0, hw, "bhdr_T*:", "%p", cur);
-    DL(tmp, &pos, 2, hw -2, "num/hashkey:", "%i", cur->bh_hashitem.mhi_key);
+    DL(tmp, &pos, idt, hw, "bhdr_T*:", "%p", cur);
+
+    int dlt = 2; // indent delta
+    DLD(tmp, &pos, idt, hw, dlt, "num/hashkey:", "%i", cur->bh_hashitem.mhi_key);
     // DL(tmp, &pos, 2, hw -2, "prev:", "%p", cur->bh_prev);
     // DL(tmp, &pos, 2, hw -2, "next:", "%p", cur->bh_next);
     // DL(tmp, &pos, 2, hw -2, "page count:", "%i", cur->bh_page_count);
-    DL(tmp, &pos, 2, hw -2, "data:", "%p", cur->bh_data);
 
-    if (cur->bh_hashitem.mhi_key == 0) {
+    uint16_t* p_dataid = cur->bh_data;  // look at first two bytes of data buffer
+                                       //
+    dlt += 2;
+    if (*p_dataid == BLOCK0_ID) {
+      DLD(tmp, &pos, idt, hw, dlt, "data (block0):", "%p", cur->bh_data);
       block0_T* b0 = cur->bh_data;
-      DL(tmp, &pos, 4, hw -4, "uname:", "%s", b0->b0_uname);
-      DL(tmp, &pos, 4, hw -4, "fname:", "%s", b0->b0_fname);
-    } else if (cur->bh_hashitem.mhi_key == 1) {
+      DLD(tmp, &pos, idt, hw, dlt, "uname:", "%s", b0->b0_uname);
+      DLD(tmp, &pos, idt, hw, dlt, "fname:", "%.20s", b0->b0_fname);   // buffer file name if any
+    } else if (*p_dataid == PTR_ID) {
+      DLD(tmp, &pos, idt, hw, dlt, "data (ptr):", "%p", cur->bh_data);
       pointer_block_T* pb = cur->bh_data;
-      DL(tmp, &pos, 4, hw -4, "ct:", "%i", pb->pb_count);
-      DL(tmp, &pos, 4, hw -4, "max:", "%i", pb->pb_count_max);
+      DLD(tmp, &pos, idt, hw, dlt, "ct:", "%i", pb->pb_count);
+      DLD(tmp, &pos, idt, hw, dlt, "max:", "%i", pb->pb_count_max);
 
       pointer_entry_T* pe = pb->pb_pointer;
       for (int i = 0; i < pb->pb_count && i < 10; ++i) {
-        DL(tmp, &pos, 4, hw -4, "ptr:", "%p", pe);
-        DL(tmp, &pos, 4, hw -4, "", "%i, %i, %i", pe->pe_bnum, pe->pe_line_count, pe->pe_page_count);
+        DLD(tmp, &pos, idt, hw, dlt, "ptr:", "bnum=%i, lnct=%i, pgct=%i", pe->pe_bnum, pe->pe_line_count, pe->pe_page_count);
         ++pe;
       }
-    } else {
+    } else if (*p_dataid == DATA_ID) {
+      DLD(tmp, &pos, idt, hw, dlt, "data:", "%p", cur->bh_data);
       data_block_T* data = cur->bh_data;
-      DL(tmp, &pos, 4, hw -4, "id:", "%i", data->db_id);
-      DL(tmp, &pos, 4, hw -4, "line ct", "%i", data->db_line_count);
-      DL(tmp, &pos, 4, hw -4, "free", "%i", data->db_free);
+      DLD(tmp, &pos, idt, hw, dlt, "line ct:", "%i", data->db_line_count);
+      DLD(tmp, &pos, idt, hw, dlt, "free:", "%i", data->db_free);
+    } else {
+      // unexpected
     }
 
     cur = cur->bh_next;
@@ -543,19 +609,21 @@ static int dump_full_ct = 0;
 
 void KeiDump(void) {
   char tmp_main[LOCAL_BUF_SIZE];
+
   char tmp_buf[LOCAL_BUF_SIZE];
-  char tmp_win[LOCAL_BUF_SIZE];
+  char tmp_bh[LOCAL_BUF_SIZE];
 
-  int pos_win_buf = 0;
+  int pos_buf = 0;
   // KeiDumpBufCore(curbuf, tmp_buf);
-  KeiDumpBlockHeader2(curbuf, tmp_buf);
+  //
+  DumpBuf(curbuf, tmp_buf, &pos_buf);
+  DumpBlockHeaders(curbuf, tmp_bh);
 
-  KeiDumpBuf2(curbuf, tmp_win, &pos_win_buf);
-  KeiDumpWinCore(curwin, tmp_win, &pos_win_buf);
+  //KeiDumpWinCore(curwin, tmp_win, &pos_win_buf);
 
   int pos = 0;
   // Box(tmp_main, &pos, 1, 1, 1, tmp_buf);
-  Box(tmp_main, &pos, 2, 1, 2, tmp_buf, tmp_win);
+  Box(tmp_main, &pos, 2, 1, 2, tmp_buf, tmp_bh);
   /* int pos = Box(tmp_main, 0, 2, 1, 2, tmp_buf, tmp_win); */
 
   sprintf(tmp_main + pos, "\n(about %i / %i bytes left in local buffer)", LOCAL_BUF_SIZE - (pos + 50), LOCAL_BUF_SIZE);
