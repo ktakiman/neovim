@@ -228,6 +228,14 @@ static void D2L(const char* header, const char* format, ...) {
   va_end(args);
 }
 
+static void D2H(const char* header, bool endl) {
+  DH(g_buf, g_pos, g_indent, g_header_len, header, endl);
+}
+
+static void D2HR() {
+  DHR(g_buf, g_pos, g_indent, g_header_len);
+}
+
 // ----------------------------------------------------------------------------
 // buffer dump
 // ----------------------------------------------------------------------------
@@ -371,46 +379,54 @@ void KeiDumpBuf(buf_T* buf) {
 }
 
 static void DumpBuf(buf_T* buf, char* tmp, int* pos) {
-  int hw = 20;
-  DL(tmp, pos, 0, hw, "buf", "%p", buf);
-  DHR(tmp, pos, 0, hw);
+  D2Setup(tmp, pos, 0, 22);
+  D2L("buf", "%p", buf);
+  D2HR();
 
   memline_T* ml = &buf->b_ml;
-  DH(tmp, pos, 0, hw, "memline:", true);
-  DL(tmp, pos, 2, hw, "ml_line_count:", "%li", ml->ml_line_count);
-  DL(tmp, pos, 2, hw, "ml_line_lnum:", "%li", ml->ml_line_lnum);
-  DL(tmp, pos, 2, hw, "ml_line_ptr:", "%.20s", ml->ml_line_ptr);
-  DL(tmp, pos, 2, hw, "ml_locked:", "%p", ml->ml_locked);
-  DL(tmp, pos, 2, hw, "ml_locked_low:", "%li", ml->ml_locked_low);
-  DL(tmp, pos, 2, hw, "ml_locked_high:", "%li", ml->ml_locked_high);
-  DL(tmp, pos, 2, hw, "ml_locked_lineadd:", "%i", ml->ml_locked_lineadd);
-  DL(tmp, pos, 2, hw, "ml_stack:", "top=%i, size=%i", ml->ml_stack_top, ml->ml_stack_size);
+  D2H("memline:", true);
+  D2Indent(2);
+  D2L("ml_line_count:", "%li", ml->ml_line_count);
+  D2L("ml_line_lnum:", "%li", ml->ml_line_lnum);
+  D2L("ml_line_ptr:", "%.20s", ml->ml_line_ptr);
+  D2L("ml_locked:", "%p", ml->ml_locked);
+  D2L("ml_locked_low:", "%li", ml->ml_locked_low);
+  D2L("ml_locked_high:", "%li", ml->ml_locked_high);
+  D2L("ml_locked_lineadd:", "%i", ml->ml_locked_lineadd);
+  D2L("ml_stack:", "top=%i, size=%i", ml->ml_stack_top, ml->ml_stack_size);
+
+  D2Indent(2);
   for (int i = 0; i < ml->ml_stack_top; ++i) {
     infoptr_T* info = ml->ml_stack + i;
-    DL(tmp, pos, 4, hw, "ip_bnum:", "%i", info->ip_bnum);     // block number of a pointer block
-    DL(tmp, pos, 4, hw, "ip_index:", "%i", info->ip_index);   // index of pointer block entry for the current line
-    DL(tmp, pos, 4, hw, "ip_low:", "%i", info->ip_low);       // low line number of a pointer block
-    DL(tmp, pos, 4, hw, "ip_high:", "%i", info->ip_high);     // high line number of a pointer block
+    D2L("ip_bnum:", "%i", info->ip_bnum);     // block number of a pointer block
+    D2L("ip_index:", "%i", info->ip_index);   // index of pointer block entry for the current line
+    D2L("ip_low:", "%i", info->ip_low);       // low line number of a pointer block
+    D2L("ip_high:", "%i", info->ip_high);     // high line number of a pointer block
   }
-  DL(tmp, pos, 2, hw, "ml_chunksize:", "num=%i, used=%i", ml->ml_numchunks, ml->ml_usedchunks);
+
+  D2Indent(-2);
+  D2L("ml_chunksize:", "num=%i, used=%i", ml->ml_numchunks, ml->ml_usedchunks);
+  D2Indent(2);
   for (int i = 0; i < ml->ml_usedchunks && i < 3; ++i) {      // limit number of chunk data
     chunksize_T* cs = ml->ml_chunksize + i;
-    DL(tmp, pos, 4, hw, "mlcs_numlines", "%i", cs->mlcs_numlines);     // block number of a pointer block
-    DL(tmp, pos, 4, hw, "mlcs_totalsize", "%i", cs->mlcs_totalsize);     // block number of a pointer block
+    D2L("mlcs_numlines", "%i", cs->mlcs_numlines);     // block number of a pointer block
+    D2L("mlcs_totalsize", "%i", cs->mlcs_totalsize);     // block number of a pointer block
   }
-  DHR(tmp, pos, 0, hw);
+  D2Indent(-4);
+  D2HR();
 
   // shoud those be in another function?
   memfile_T* mf = ml->ml_mfp;
-  DL(tmp, pos, 0, hw, "memfile", "%p", mf);
-  DL(tmp, pos, 2, hw, "mf_fname", "%.20s", mf->mf_fname);    // swapfile?
-  DL(tmp, pos, 2, hw, "mf_ffname", "%.20s", mf->mf_ffname);  // swapfile?
-  DL(tmp, pos, 2, hw, "mf_infile_count", "%u", mf->mf_infile_count);
-  DL(tmp, pos, 2, hw, "mf_page_size", "%i", mf->mf_page_size);
-  DL(tmp, pos, 2, hw, "mf_dirty", "%i", mf->mf_dirty);
-  DL(tmp, pos, 2, hw, "mf_blocknr_min", "%i", mf->mf_blocknr_min);
-  DL(tmp, pos, 2, hw, "mf_blocknr_max", "%i", mf->mf_blocknr_max);
-  DL(tmp, pos, 2, hw, "mf_neg_count", "%i", mf->mf_neg_count);
+  D2L("memfile", "%p", mf);
+  D2Indent(2);
+  D2L("mf_fname", "%.20s", mf->mf_fname);    // swapfile?
+  D2L("mf_ffname", "%.20s", mf->mf_ffname);  // swapfile?
+  D2L("mf_infile_count", "%u", mf->mf_infile_count);
+  D2L("mf_page_size", "%i", mf->mf_page_size);
+  D2L("mf_dirty", "%i", mf->mf_dirty);
+  D2L("mf_blocknr_min", "%i", mf->mf_blocknr_min);
+  D2L("mf_blocknr_max", "%i", mf->mf_blocknr_max);
+  D2L("mf_neg_count", "%i", mf->mf_neg_count);
 
   // bhdr_T *mf_free_first;             /// first block header in free list
   // bhdr_T *mf_used_first;             /// mru block header in used list
@@ -474,10 +490,10 @@ static void DumpBlockHeaders(buf_T* buf, char* tmp) {
   while (cur) {
     uint16_t* p_dataid = cur->bh_data;  // look at first two bytes of data buffer
                                        
+    int dlt = 2; // indent delta
     if (*p_dataid != DATA_ID || show_data_block) {
       DL(tmp, &pos, idt, hw, "bhdr_T*:", "%p", cur);
 
-      int dlt = 2; // indent delta
       DLD(tmp, &pos, idt, hw, dlt, "num/hashkey:", "%i", cur->bh_hashitem.mhi_key);
       // DL(tmp, &pos, 2, hw -2, "prev:", "%p", cur->bh_prev);
       // DL(tmp, &pos, 2, hw -2, "next:", "%p", cur->bh_next);
