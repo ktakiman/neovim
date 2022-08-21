@@ -199,6 +199,34 @@ static void DHR(char* tmp, int* pos, int indent, int len) {
 
   *pos += sprintf(tmp + *pos, "\n");
 }
+// ----------------------------------------------------------------------------
+// stateful version
+// ----------------------------------------------------------------------------
+char* g_buf;
+int* g_pos;
+int g_indent;
+int g_header_len;
+
+static void D2Setup(char* buf, int* pos, int indent, int header_len) { 
+  g_buf = buf; 
+  g_pos = pos;
+  g_indent = indent;
+  g_header_len = header_len;
+}
+
+static void D2Indent(int delta) {
+  if (g_indent + delta >= 0) {
+    g_indent += delta;
+    g_header_len -= delta;
+  }
+}
+
+static void D2L(const char* header, const char* format, ...) {
+  va_list args;
+  va_start(args, format);
+  DLImp(g_buf, g_pos, g_indent, g_header_len, header, format, args);
+  va_end(args);
+}
 
 // ----------------------------------------------------------------------------
 // buffer dump
