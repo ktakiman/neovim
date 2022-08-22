@@ -233,7 +233,7 @@ static void D2H(const char* header, bool endl) {
 }
 
 static void D2HR() {
-  DHR(g_buf, g_pos, g_indent, g_header_len);
+  DHR(g_buf, g_pos, g_indent, g_header_len - 1);
 }
 
 // ----------------------------------------------------------------------------
@@ -439,7 +439,7 @@ static void DumpBuf(buf_T* buf, char* tmp, int* pos) {
 #define DATA_ID        (('d' << 8) + 'a')   // data block id
 #define PTR_ID         (('p' << 8) + 't')   // pointer block id
 #define BLOCK0_ID      (('0' << 8) + 'b')   // block0 id0 & id1
-static void CountBlockHeaders(bhdr_T* bh, char* tmp, int* pos, int idt, int hw, const char* tag) {
+static void CountBlockHeaders(bhdr_T* bh, const char* tag) {
   int data0_ct = 0;
   int ptr_ct = 0;
   int data_ct = 0;
@@ -463,77 +463,73 @@ static void CountBlockHeaders(bhdr_T* bh, char* tmp, int* pos, int idt, int hw, 
     bh = bh->bh_next;
   }
   
-  DL(tmp, pos, idt, hw, tag, "d0=%i, ptr=%i, data=%i, unk=%i", data0_ct, ptr_ct, data_ct, unknown_ct);
+  D2L(tag, "d0=%i, ptr=%i, data=%i, unk=%i", data0_ct, ptr_ct, data_ct, unknown_ct);
 }
 
-static void DumpBlockHeaders(buf_T* buf, char* tmp) {
+static void DumpBlockHeaders(buf_T* buf, char* tmp, int* pos) {
+  D2Setup(tmp, pos, 0, 22);
+
   memfile_T* mf = buf->b_ml.ml_mfp; 
-
-  int pos = 0;
-  int hw = 20;
-
   bhdr_T* cur = mf->mf_used_first;
 
-  DH(tmp, &pos, 0, hw, "block headers:", true);
+  D2H("block headers:", true);
 
-  int idt = 2;
-  CountBlockHeaders(cur, tmp, &pos, idt, hw, "bh used ct");
-  CountBlockHeaders(mf->mf_free_first, tmp, &pos, idt, hw, "bh free ct");
-  DL(tmp, &pos, idt, hw, "used first", "%p", cur);
-  DL(tmp, &pos, idt, hw, "used last", "%p", mf->mf_used_last);
-  DHR(tmp, &pos, idt, hw);
+  D2Indent(2);
+  CountBlockHeaders(cur, "bh used ct:");
+  CountBlockHeaders(mf->mf_free_first, "bh free ct:");
+  D2L("used first", "%p", cur);
+  D2L("used last", "%p", mf->mf_used_last);
+  D2HR();
 
-  int ct = 0;
-
-  bool show_data_block = true;   // limit number of data blocks to show
+  int data_block_ct = 0;   // limit number of data blocks to show
                                //
   while (cur) {
     uint16_t* p_dataid = cur->bh_data;  // look at first two bytes of data buffer
                                        
-    int dlt = 2; // indent delta
-    if (*p_dataid != DATA_ID || show_data_block) {
-      DL(tmp, &pos, idt, hw, "bhdr_T*:", "%p", cur);
+    if (*p_dataid != DATA_ID || data_block_ct < 2) {
+      D2L("bhdr_T*:", "%p", cur);
 
-      DLD(tmp, &pos, idt, hw, dlt, "num/hashkey:", "%i", cur->bh_hashitem.mhi_key);
+      D2Indent(2);
+      D2L("num/hashkey:", "%i", cur->bh_hashitem.mhi_key);
       // DL(tmp, &pos, 2, hw -2, "prev:", "%p", cur->bh_prev);
       // DL(tmp, &pos, 2, hw -2, "next:", "%p", cur->bh_next);
       // DL(tmp, &pos, 2, hw -2, "page count:", "%i", cur->bh_page_count);
-    }
 
-    dlt += 2;
-    if (*p_dataid == BLOCK0_ID) {
-      DLD(tmp, &pos, idt, hw, dlt, "data (block0):", "%p", cur->bh_data);
-      block0_T* b0 = cur->bh_data;
-      DLD(tmp, &pos, idt, hw, dlt, "uname:", "%s", b0->b0_uname);
-      DLD(tmp, &pos, idt, hw, dlt, "fname:", "%.20s", b0->b0_fname);   // buffer file name if any
-    } else if (*p_dataid == PTR_ID) {
-      DLD(tmp, &pos, idt, hw, dlt, "data (ptr):", "%p", cur->bh_data);
-      pointer_block_T* pb = cur->bh_data;
-      DLD(tmp, &pos, idt, hw, dlt, "ct:", "%i", pb->pb_count);
-      DLD(tmp, &pos, idt, hw, dlt, "max:", "%i", pb->pb_count_max);
+      if (*p_dataid == BLOCK0_ID) {
+        D2L("data (block0):", "%p", cur->bh_data);
+        block0_T* b0 = cur->bh_data;
+        D2Indent(2);
+        D2L("uname:", "%s", b0->b0_uname);
+        D2L("fname:", "%.20s", b0->b0_fname);   // buffer file name if any
+        D2Indent(-2);
+      } else if (*p_dataid == PTR_ID) {
+        D2L("data (ptr):", "%p", cur->bh_data);
+        pointer_block_T* pb = cur->bh_data;
+        D2Indent(2);
+        D2L("ct:", "%i", pb->pb_count);
+        D2L("max:", "%i", pb->pb_count_max);
 
-      pointer_entry_T* pe = pb->pb_pointer;
-      for (int i = 0; i < pb->pb_count && i < 5; ++i) {   // limit number of pointer entries to show
-        DLD(tmp, &pos, idt, hw, dlt, "ptr:", "bnum=%i, lnct=%i, pgct=%i", pe->pe_bnum, pe->pe_line_count, pe->pe_page_count);
-        ++pe;
-      }
-    } else if (*p_dataid == DATA_ID) {
-      if (show_data_block) {
-        DLD(tmp, &pos, idt, hw, dlt, "data:", "%p", cur->bh_data);
+        pointer_entry_T* pe = pb->pb_pointer;
+        for (int i = 0; i < pb->pb_count && i < 5; ++i) {   // limit number of pointer entries to show
+          D2L("ptr:", "bnum=%i, lnct=%i, pgct=%i", pe->pe_bnum, pe->pe_line_count, pe->pe_page_count);
+          ++pe;
+        }
+        D2Indent(-2);
+      } else if (*p_dataid == DATA_ID) {
+        D2L("data:", "%p", cur->bh_data);
         data_block_T* data = cur->bh_data;
-        DLD(tmp, &pos, idt, hw, dlt, "line ct:", "%i", data->db_line_count);
-        DLD(tmp, &pos, idt, hw, dlt, "free:", "%i", data->db_free);
-        show_data_block = false;
+        D2Indent(2);
+        D2L("line ct:", "%i", data->db_line_count);
+        D2L("free:", "%i", data->db_free);
+        D2Indent(-2);
+        ++data_block_ct;
+      } else {
+        // unexpected
       }
-    } else {
-      // unexpected
-    }
 
-    cur = cur->bh_next;
-    ++ct;
-    if (ct > 5) {
-      break;
+      D2Indent(-2);
     }
+    cur = cur->bh_next;
   }
 }
 
@@ -665,10 +661,11 @@ void KeiDump(void) {
   char tmp_bh[LOCAL_BUF_SIZE];
 
   int pos_buf = 0;
+  int pos_bh = 0;
   // KeiDumpBufCore(curbuf, tmp_buf);
   //
   DumpBuf(curbuf, tmp_buf, &pos_buf);
-  DumpBlockHeaders(curbuf, tmp_bh);
+  DumpBlockHeaders(curbuf, tmp_bh, &pos_bh);
 
   //KeiDumpWinCore(curwin, tmp_win, &pos_win_buf);
 
